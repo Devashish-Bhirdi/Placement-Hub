@@ -5,20 +5,26 @@
 // "sheets" is an object { 'file.xlsx›Sheet name': rows[][] }  (rows = array of arrays, header first)
 
 export const COLLEGES = {
-  'Aravali College': 'One file per year (22–26): Student Name | Company',
+  'Aravali College': 'One workbook, sheet per year (2022, 2023 ...): Company | Count. Older format: one file per year (22–26) with Student Name | Company',
   'Bharti Vidyapeeth': 'One sheet: Sr. No. | Company (no year)',
   'Dhole Patil': 'One file per year (2023-24_...xlsx): sheet "student data" / "student record" with Name | Branch | Company | Package. Company Count and department company lists are ignored',
   JSPM: 'Sheets "Batch 2025-26": Company | Students | Package in LPA. The "5 Years of Placement Excellence" summary sheet is ignored',
-  SIT: 'Sheet per program/year (e.g. B.Tech 2025): Company only',
+  SIT: 'One workbook, sheet per program and year ("B.Tech 2025" = 2024-25, "B.Tech 2022-23", "M.Tech 2024"): Company only. Summary sheet ignored',
   AIT: 'One workbook, sheet per year (2025-26): Sr No | Name of the Firm | one count column per department | Total | CTC. Summary sheet ignored',
   Cummins: 'One workbook, sheet per year (2025-26): Company | Count | CTC. Summary sheet ignored',
   'DYP DPU': 'Sheets "Prominent Placement 2025-26": Name | Branch | Company | Package. "... Cleaned" sheets ignored',
   'MIT WPU': 'One sheet, one column "Companies" (no year)',
   'MIT Alandi': 'Sheet "Placement & Internships": Full Name | Degree | Specializations | Name of Company | Salary Offered (no year). "Company Count" sheet ignored',
-  PCCOE: 'One sheet: Company Name | Type | Package (LPA) | Total students recruited (no year)',
+  PCCOE: 'One sheet ("Top Companies"): Company | Salary (LPA) (no year, no student count). A company can appear on several rows with different packages',
   'Canara College': 'One sheet: Company Name | Type | Package (LPA) | Total students recruited (no year)',
   'IIIT Pune': 'One sheet, one column "Company" (no year)',
   NMIET: 'One sheet: Company | CTC (no year, no student count)',
+  NMIMS: 'One workbook, sheet per program and year ("Engineering 24-25", "MBA Tech 25-26"): one column "Companies" (no count, no CTC)',
+  PICT: 'One sheet per year (e.g. "2025-26"): one column "Company" (no count, no CTC)',
+  SPIT: 'One workbook, sheet per year (2025-26): Name | Branch | Placement / Internship Offer. "Company Count ..." sheets ignored (no CTC)',
+  VIT: 'One sheet, one column "Companies" (no year)',
+  VJTI: 'One sheet, one column "Company Name" (no year)',
+  Walchand: 'One sheet, one column "Companies" (no year)',
 };
 
 export const NOT_SPECIFIED = 'Not specified';
@@ -30,7 +36,7 @@ const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 // "LG pvt ltd, Pune" -> "LG", "TCS (Ninja / Digital / Prime)" -> "TCS". Everything after a comma, a bracket
 // or a legal suffix (Pvt / Ltd / Limited ...) is dropped.
 const cleanName = (s) => {
-  let t = tidy(s).split(',')[0];
+  let t = tidy(s).split(',')[0].replace(/\s+p\.?\s*(?=ltd\b)/i,' ');
   const br = t.indexOf('(');
   if (br > 0) t = t.slice(0, br);
   const m = t.search(/\b(pvt|private|ltd|limited|llp|inc|opc)\b/i);
@@ -44,14 +50,15 @@ const companyBase = (s) => cleanName(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 const DEPT = {
   comp: 'Computer', computer: 'Computer', cse: 'Computer', computerscience: 'Computer',
   it: 'IT', informationtechnology: 'IT',
-  etc: 'ENTC', entc: 'ENTC', electronicstelecommunication: 'ENTC', electronicsandtelecommunication: 'ENTC',
+  etc: 'ENTC', entc: 'ENTC', electronicstelecommunication: 'ENTC', electronicsandtelecommunication: 'ENTC',extc: 'ENTC',
   mech: 'Mechanical', mechanical: 'Mechanical',
   auto: 'Automobile', automobile: 'Automobile',
   civil: 'Civil', electrical: 'Electrical', mba: 'MBA', aids: 'AI&DS',
 };
 const deptName = (s) => {
   const t = tidy(s).replace(/\b(and\s+)?(engineering|engg|engineer)\b\.?/gi, '').replace(/\s+/g, ' ').trim();
-  return DEPT[norm(t)] || t;
+  // if stripping "Engineering" leaves nothing (the label was just "Engineering"), keep the original text
+  return DEPT[norm(t)] || t || tidy(s);
 };
 
 const col = (rows, re) => (rows[0] || []).findIndex((h) => re.test(String(h)));
@@ -59,6 +66,11 @@ const yr = (y) => `${y}-${String((+y + 1) % 100).padStart(2, '0')}`;
 const range = (s) => {
   const m = String(s).match(/(20\d{2})\s*[-–]\s*(\d{2})/);
   return m ? `${m[1]}-${m[2]}` : null;
+};
+// "24-25" -> "2024-25" (two-digit academic year, as in NMIMS sheet names)
+const shortRange = (s) => {
+  const m = String(s).match(/(?<!\d)(\d{2})\s*[-–]\s*(\d{2})(?!\d)/);
+  return m ? `20${m[1]}-${m[2]}` : null;
 };
 const num = (v) => (v === '' || v == null || isNaN(+v) ? null : +v);
 const sheetOf = (k) => String(k).split('›').pop(); // keys look like "file›sheet"
@@ -98,7 +110,7 @@ const DISPLAY = {}; // companyBase(canonical) -> canonical name
   ['Wipro', 'wipro'],
   ['Cognizant', 'cognizant', 'cts'],
   ['Capgemini', 'capgemini'],
-  ['Accenture', 'accenture'],
+  ['Accenture', 'accenture','accenture service','accenture services'],
   ['Persistent', 'persistent systems'],
   ['Tech Mahindra', 'tech mahindra', 'techm'],
   ['Zensar', 'zensar'],
@@ -128,14 +140,29 @@ const companyList = (S) => {
 };
 
 const IMPORTERS = {
-  // year comes from the file name (22 -> 2022-23); one row per student
+  // Two layouts are supported:
+  //  1) One workbook, one sheet per year (sheet named 2022, 2023 ... or 2022-23): Company | Count. No CTC.
+  //     The year comes from the sheet name (2022 -> 2022-23); the count is used as given.
+  //  2) One file per year (22 -> 2022-23): Student Name | Company, one row per student.
   'Aravali College': (S) =>
     Object.entries(S).flatMap(([k, rows]) => {
+      const c = col(rows, /company/i);
+      if (c < 0) return [];
+      const sheet = sheetOf(k).trim();
+      const sy = range(sheet) || (/^20\d{2}$/.test(sheet) ? yr(+sheet) : null);
+      const n = col(rows, /count/i);
+
+      // Layout 1: year in the sheet name + a Count column
+      if (sy && n >= 0 && n !== c) {
+        return rows.slice(1)
+          .filter((r) => r[c] && !/^total$/i.test(String(r[c]).trim()))
+          .map((r) => mk({ year: sy, raw: String(r[c]), count: num(r[n]) }));
+      }
+
+      // Layout 2: year in the file name, one row per student
       const m = k.split('›')[0].match(/(\d{4}|\d{2})/);
       if (!m) return [];
       const y = yr(+m[1] < 100 ? 2000 + +m[1] : +m[1]);
-      const c = col(rows, /company/i);
-      if (c < 0) return [];
       return rows.slice(1).filter((r) => r[c]).map((r) => mk({ year: y, raw: String(r[c]), count: 1, agg: true }));
     }),
 
@@ -169,13 +196,20 @@ const IMPORTERS = {
       });
     }),
 
+  // One sheet per program and year: "B.Tech 2025", "B.Tech 2022-23", "M.Tech 2024". Column: Company.
+  // A single year in the sheet name is the year the batch ended (2025 -> 2024-25, 2024 -> 2023-24); a full
+  // range such as 2022-23 is used as written. The program (B.Tech / M.Tech) goes in the Department column,
+  // so a company hiring from both programs in one year shows as two rows. Other sheets (the % placements
+  // summary) have no program in their name or no Company column and are skipped.
   SIT: (S) =>
     Object.entries(S).flatMap(([k, rows]) => {
-      const m = k.match(/([BM]\.?\s?Tech)\s*(\d{4})/i);
+      const m = sheetOf(k).match(/([BM])\.?\s?Tech\s*(20\d{2}(?:\s*[-–]\s*\d{2})?)/i);
       if (!m) return [];
       const c = col(rows, /company/i);
       if (c < 0) return [];
-      return rows.slice(1).filter((r) => r[c]).map((r) => mk({ year: yr(m[2]), raw: String(r[c]) }));
+      const y = range(m[2]) || yr(+m[2] - 1);
+      const program = `${m[1].toUpperCase()}.Tech`;
+      return rows.slice(1).filter((r) => r[c]).map((r) => mk({ year: y, dept: program, raw: String(r[c]) }));
     }),
 
   // Sheet per year. Company, then one column per department holding a count, CTC in the last column.
@@ -245,6 +279,20 @@ const IMPORTERS = {
   'Canara College': (S) => IMPORTERS.PCCOE(S),
   NMIET: (S) => IMPORTERS.PCCOE(S),
 
+  // One sheet per program and year: "Engineering 24-25", "Engineering 25-26", "MBA Tech 24-25", "MBA Tech 25-26".
+  // One column "Companies". The two-digit year in the sheet name (24-25) becomes 2024-25, and the program
+  // (Engineering / MBA Tech) goes in the Department column, so a company hiring from both programs in one
+  // year shows as two rows. No student count or CTC in the file.
+  NMIMS: (S) =>
+    Object.entries(S).flatMap(([k, rows]) => {
+      const name = sheetOf(k);
+      const y = range(name) || shortRange(name);
+      const c = col(rows, /compan/i);
+      if (!y || c < 0) return [];
+      const program = tidy(name.replace(/(20)?\d{2}\s*[-–]\s*\d{2}/, ''));
+      return rows.slice(1).filter((r) => r[c]).map((r) => mk({ year: y, dept: program, raw: String(r[c]) }));
+    }),
+
   // Company | Type | Package | Total students recruited. No year in the file.
   PCCOE: (S) =>
     Object.values(S).flatMap((rows) => {
@@ -256,6 +304,35 @@ const IMPORTERS = {
       return rows.slice(1).filter((r) => r[c]).map((r) =>
         mk({ raw: String(r[c]), count: n >= 0 ? num(r[n]) : null, ctc: p >= 0 ? pkg(r[p]) : null }));
     }),
+  
+    // One sheet per year named "2025-26" (or "2025-2026" / "25-26"): one column "Company". The year comes
+  // from the sheet name. No student count or CTC in the file.
+  PICT: (S) =>
+    Object.entries(S).flatMap(([k, rows]) => {
+      const y = range(sheetOf(k)) || shortRange(sheetOf(k));
+      const c = col(rows, /compan/i);
+      if (!y || c < 0) return [];
+      return rows.slice(1).filter((r) => r[c]).map((r) => mk({ year: y, raw: String(r[c]) }));
+    }),  
+
+  // One row per student offer, sheets named "2025-26", "2024-25" ...: Name | Branch | Placement / Internship Offer.
+  // The "Company Count <year>" sheets are the same data already totalled, so they are skipped.
+  // A trailing * on a company name is dropped. No CTC in the file.
+  SPIT: (S) =>
+    Object.entries(S).flatMap(([k, rows]) => {
+      const name = sheetOf(k);
+      const y = range(name);
+      if (!y || /count/i.test(name) || rows.length < 2) return [];
+      const st = col(rows, /^\s*name/i), c = col(rows, /offer|company/i);
+      if (st < 0 || c < 0) return [];
+      const b = col(rows, /branch/i);
+      return rows.slice(1).filter((r) => r[st] && r[c]).map((r) =>
+        mk({ year: y, dept: b >= 0 ? String(r[b] ?? '') : '', raw: String(r[c]).replace(/\*+/g, ''), count: 1, agg: true }));
+    }),  
+
+  VIT: companyList,  
+  VJTI: companyList,
+  Walchand: companyList,
 };
 
 /* ------------------------------------------------ which college is a file? */
@@ -263,7 +340,7 @@ const IMPORTERS = {
 const NAME_HINTS = [['aravali', 'Aravali College'], ['bharti', 'Bharti Vidyapeeth'], ['bharati', 'Bharti Vidyapeeth'],
   ['dhole', 'Dhole Patil'], ['dyp', 'DYP DPU'], ['mit', 'MIT WPU'], ['wpu', 'MIT WPU'], ['canara', 'Canara College'], ['iiit', 'IIIT Pune'], ['iiitp', 'IIIT Pune'],
   ['rscoe', 'JSPM'], ['rajarshi', 'JSPM'], ['mitaoe', 'MIT Alandi'], ['alandi', 'MIT Alandi'],
-  ['nutan', 'NMIET']];
+  ['nutan', 'NMIET'], ['nmims', 'NMIMS'], ['wce', 'Walchand'],['walchand college', 'Walchand']];
 const words = (s) => ' ' + String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
 // Longest names first, so "dyp dpu" wins over "dyp".
 const NAMES = [...Object.keys(COLLEGES).map((c) => [words(c), c]), ...NAME_HINTS.map(([h, c]) => [words(h), c])]
@@ -271,7 +348,7 @@ const NAMES = [...Object.keys(COLLEGES).map((c) => [words(c), c]), ...NAME_HINTS
 const nameMatch = (text) => (NAMES.find(([w]) => words(text).includes(w)) || [])[1] || null;
 
 // Order: 1) folder name in the bucket, 2) file name ("AIT.xlsx", "Bharti Vidyapeeth.xlsx"),
-// 3) what is inside the workbook (only possible for AIT, Cummins, DYP DPU, Dhole Patil, JSPM and MIT Alandi).
+// 3) what is inside the workbook (only possible for AIT, Cummins, DYP DPU, Dhole Patil, JSPM, MIT Alandi, SIT and NMIMS).
 // Returns null when nothing matches; the app then lists the file as skipped.
 export function detectCollege(folder, sheets) {
   const fromFolder = folder && nameMatch(folder);
@@ -289,6 +366,12 @@ export function detectCollege(folder, sheets) {
   if (entries.some(([k]) => /^batch\s*20\d{2}/i.test(sheetOf(k)))) return 'JSPM';
   if (entries.some(([, rows]) => (rows[0] || []).some((h) => /specialization/i.test(String(h))) && (rows[0] || []).some((h) => /full name/i.test(String(h))))) return 'MIT Alandi';
   if (entries.some(([, rows]) => (rows[0] || []).some((h) => /selected students/i.test(String(h))))) return 'Dhole Patil';
+  // SIT: sheets named "B.Tech 2025" / "M.Tech 2024" with a Company column
+  if (entries.some(([k, rows]) => /^[BM]\.?\s?Tech\s*20\d{2}/i.test(sheetOf(k)) && col(rows, /company/i) >= 0)) return 'SIT';
+  // NMIMS: sheets named "Engineering 24-25" / "MBA Tech 25-26" with a Companies column
+  if (entries.some(([k, rows]) => /^(engineering|mba\s*tech)\s*\d{2}\s*[-–]\s*\d{2}/i.test(sheetOf(k)) && col(rows, /compan/i) >= 0)) return 'NMIMS';
+    // SPIT: student sheets with a "Placement / Internship Offer" column
+  if (entries.some(([, rows]) => (rows[0] || []).some((h) => /placement\s*\/\s*internship offer/i.test(String(h))))) return 'SPIT';
   return null;
 }
 
