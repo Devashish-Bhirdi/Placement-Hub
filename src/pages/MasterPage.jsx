@@ -13,6 +13,13 @@ export default function MasterPage({ master }) {
   const [page, setPage] = useState(0);
 
   const years = useMemo(() => sortYears(new Set(master.map((r) => r.year))), [master]);
+
+  // Colleges sorted alphabetically (case-insensitive)
+  const collegeNames = useMemo(
+    () => Object.keys(COLLEGES).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+    []
+  );
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return master.filter((r) =>
@@ -40,7 +47,7 @@ export default function MasterPage({ master }) {
       <div className="toolbar">
         <select value={college} onChange={onFilter(setCollege)}>
           <option value="">All colleges</option>
-          {Object.keys(COLLEGES).map((c) => <option key={c}>{c}</option>)}
+          {collegeNames.map((c) => <option key={c}>{c}</option>)}
         </select>
         <select value={year} onChange={onFilter(setYear)}>
           <option value="">All years</option>
